@@ -1,0 +1,14 @@
+numpy
+pandas
+xarray
+netCDF4
+scikit-learn
+matplotlib
+seaborn
+joblib
+tensorflow
+plotly
+streamlit
+geopandas
+shapely
+folium
