@@ -1,0 +1,13 @@
+Model,Variable,MAE,RMSE
+Persistence,Rainfall,5.5132,13.8623
+LSTM,Rainfall,5.2732,10.8875
+ConvLSTM,Rainfall,5.5135,10.8342
+ConvLSTM + Attention,Rainfall,5.6015,10.7709
+Persistence,Tmax,1.0052,1.3382
+LSTM,Tmax,1.0205,1.3416
+ConvLSTM,Tmax,0.9848,1.2839
+ConvLSTM + Attention,Tmax,0.9844,1.2753
+Persistence,Tmin,0.7061,0.9642
+LSTM,Tmin,0.75,0.9752
+ConvLSTM,Tmin,0.6638,0.8751
+ConvLSTM + Attention,Tmin,0.6663,0.8799
