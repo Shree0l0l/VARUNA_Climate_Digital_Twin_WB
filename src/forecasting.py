@@ -133,6 +133,57 @@ def forecast_for_target_date(ds, mask, means, stds, model, target_date):
     return pred_grid, pred_grid
 
 
+def forecast_next_days(
+    ds, mask, means, stds, model, as_of_date, horizon=3
+):
+    """Forecast the next N days after the selected last-observed date."""
+    if horizon < 1:
+        raise ValueError("Forecast horizon must be at least 1 day.")
+
+    dates = pd.to_datetime(ds.time.values).normalize()
+    as_of = pd.Timestamp(as_of_date).normalize()
+
+    prior = np.flatnonzero(dates <= as_of)
+
+    if len(prior) < 7:
+        raise ValueError("At least 7 days of history are required.")
+
+    idx = prior[-7:]
+    history_dates = dates[idx]
+
+    if not np.all(np.diff(history_dates.values) == np.timedelta64(1, "D")):
+        raise ValueError("The last 7 observations must be consecutive days.")
+
+    history = np.stack(
+        [ds[v].isel(time=idx).values for v in VARIABLES],
+        axis=-1,
+    ).astype(np.float32)
+
+    if not np.isfinite(history[:, mask, :]).all():
+        raise ValueError("Missing values in the selected grid cells.")
+
+    forecasts = []
+
+    for day in range(1, horizon + 1):
+        x = _make_model_input(history, mask, means, stds)
+        pred_grid = _predict_grid(model, x, means, stds, mask)
+
+        forecast_date = as_of + pd.Timedelta(days=day)
+
+        forecasts.append({
+            "date": forecast_date,
+            "grid": pred_grid.copy(),
+            "regional_means": regional_means(pred_grid, mask),
+        })
+
+        # Roll the window forward: the next forecast uses this prediction.
+        history = np.concatenate(
+            [history[1:], pred_grid[np.newaxis, ...]],
+            axis=0,
+        )
+
+    return forecasts
+
 def regional_means(grid, mask):
     result = {}
     for i, var in enumerate(VARIABLES):
