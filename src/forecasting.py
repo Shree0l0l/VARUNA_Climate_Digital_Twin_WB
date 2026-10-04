@@ -226,24 +226,114 @@ def get_available_target_dates(ds):
     return pd.to_datetime(ds.time.values)
 
 
-def run_scenario(ds, mask, means, stds, model, target_date,
-                 rainfall_change=0.0, tmax_change=0.0, tmin_change=0.0):
+# def run_scenario(ds, mask, means, stds, model, target_date,
+#                  rainfall_change=0.0, tmax_change=0.0, tmin_change=0.0):
+#     raw, _ = _get_history(ds, mask, target_date)
+#     baseline_x = _make_model_input(raw.copy(), mask, means, stds)
+
+#     scenario_raw = raw.copy()
+#     scenario_raw[-1, mask, 0] += float(rainfall_change)
+#     scenario_raw[-1, mask, 1] += float(tmax_change)
+#     scenario_raw[-1, mask, 2] += float(tmin_change)
+#     scenario_raw[..., 0] = np.maximum(scenario_raw[..., 0], 0.0)
+#     scenario_x = _make_model_input(scenario_raw, mask, means, stds)
+
+#     baseline_grid = _predict_grid(model, baseline_x, means, stds, mask)
+#     scenario_grid = _predict_grid(model, scenario_x, means, stds, mask)
+
+#     return (
+#         regional_means(baseline_grid, mask),
+#         regional_means(scenario_grid, mask),
+#         baseline_grid,
+#         scenario_grid,
+#     )
+
+
+
+def run_scenario(
+    ds,
+    mask,
+    means,
+    stds,
+    model,
+    target_date,
+    rainfall_change=0.0,
+    tmax_change=0.0,
+    tmin_change=0.0,
+    location_index=None,
+):
+    """
+    Compare baseline and what-if forecasts.
+
+    If location_index=(row, col) is supplied, changes are applied
+    only to that grid cell on the final day of the 7-day history.
+    Otherwise, the changes apply to every valid grid cell.
+    """
     raw, _ = _get_history(ds, mask, target_date)
-    baseline_x = _make_model_input(raw.copy(), mask, means, stds)
+
+    baseline_x = _make_model_input(
+        raw.copy(), mask, means, stds
+    )
 
     scenario_raw = raw.copy()
-    scenario_raw[-1, mask, 0] += float(rainfall_change)
-    scenario_raw[-1, mask, 1] += float(tmax_change)
-    scenario_raw[-1, mask, 2] += float(tmin_change)
-    scenario_raw[..., 0] = np.maximum(scenario_raw[..., 0], 0.0)
-    scenario_x = _make_model_input(scenario_raw, mask, means, stds)
 
-    baseline_grid = _predict_grid(model, baseline_x, means, stds, mask)
-    scenario_grid = _predict_grid(model, scenario_x, means, stds, mask)
+    if location_index is None:
+        # Backward-compatible regional scenario.
+        scenario_raw[-1, mask, 0] += float(rainfall_change)
+        scenario_raw[-1, mask, 1] += float(tmax_change)
+        scenario_raw[-1, mask, 2] += float(tmin_change)
+    else:
+        row, col = location_index
+
+        if not (0 <= row < mask.shape[0] and
+                0 <= col < mask.shape[1]):
+            raise ValueError("Selected grid cell is out of bounds.")
+
+        if not mask[row, col]:
+            raise ValueError("Selected grid cell is outside the study mask.")
+
+        # Change only the selected cell, on the final observed day.
+        scenario_raw[-1, row, col, 0] += float(rainfall_change)
+        scenario_raw[-1, row, col, 1] += float(tmax_change)
+        scenario_raw[-1, row, col, 2] += float(tmin_change)
+
+    # Rainfall cannot be negative.
+    scenario_raw[..., 0] = np.maximum(
+        scenario_raw[..., 0], 0.0
+    )
+
+    scenario_x = _make_model_input(
+        scenario_raw, mask, means, stds
+    )
+
+    baseline_grid = _predict_grid(
+        model, baseline_x, means, stds, mask
+    )
+    scenario_grid = _predict_grid(
+        model, scenario_x, means, stds, mask
+    )
+
+    if location_index is None:
+        baseline = regional_means(baseline_grid, mask)
+        scenario = regional_means(scenario_grid, mask)
+    else:
+        row, col = location_index
+
+        baseline = {
+            "rainfall": float(baseline_grid[row, col, 0]),
+            "tmax": float(baseline_grid[row, col, 1]),
+            "tmin": float(baseline_grid[row, col, 2]),
+        }
+        scenario = {
+            "rainfall": float(scenario_grid[row, col, 0]),
+            "tmax": float(scenario_grid[row, col, 1]),
+            "tmin": float(scenario_grid[row, col, 2]),
+        }
 
     return (
-        regional_means(baseline_grid, mask),
-        regional_means(scenario_grid, mask),
+        baseline,
+        scenario,
         baseline_grid,
         scenario_grid,
     )
+

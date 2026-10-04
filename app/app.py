@@ -843,17 +843,270 @@ elif page == "Forecast & Spatial Map":
 # PAGE 3: WHAT-IF SIMULATOR
 # ============================================================
 
+# elif page == "What-if Simulator":
+
+#     st.subheader("What-if simulator")
+
+#     st.write(
+#         "Perturb the final observed day in the seven-day "
+#         "input window and compare the model response."
+#     )
+
+#     st.caption(
+#         f"Simulation target date: {selected_target}"
+#     )
+
+#     c1, c2, c3 = st.columns(3)
+
+#     with c1:
+#         rain_delta = st.slider(
+#             "Rainfall change (mm)",
+#             -100.0,
+#             100.0,
+#             0.0,
+#             5.0,
+#         )
+
+#     with c2:
+#         tmax_delta = st.slider(
+#             "Tmax change (°C)",
+#             -5.0,
+#             5.0,
+#             0.0,
+#             0.5,
+#         )
+
+#     with c3:
+#         tmin_delta = st.slider(
+#             "Tmin change (°C)",
+#             -5.0,
+#             5.0,
+#             0.0,
+#             0.5,
+#         )
+
+#     if st.button(
+#         "Run baseline vs scenario",
+#         type="primary",
+#     ):
+#         from src.forecasting import run_scenario
+
+#         try:
+#             (
+#                 baseline,
+#                 scenario,
+#                 baseline_grid,
+#                 scenario_grid,
+#             ) = run_scenario(
+#                 ds,
+#                 mask,
+#                 means,
+#                 stds,
+#                 model,
+#                 selected_target,
+#                 rain_delta,
+#                 tmax_delta,
+#                 tmin_delta,
+#             )
+
+#         except Exception as exc:
+#             st.error(f"Simulation failed: {exc}")
+#             st.stop()
+
+#         rows = []
+
+#         for var, label, unit in [
+#             ("rainfall", "Rainfall", "mm/day"),
+#             ("tmax", "Tmax", "°C"),
+#             ("tmin", "Tmin", "°C"),
+#         ]:
+#             rows.append(
+#                 {
+#                     "Variable": f"{label} ({unit})",
+#                     "Baseline": baseline[var],
+#                     "Scenario": scenario[var],
+#                     "Difference": (
+#                         scenario[var] - baseline[var]
+#                     ),
+#                 }
+#             )
+
+#         comp = pd.DataFrame(rows)
+
+#         st.subheader("Baseline versus scenario")
+
+#         st.dataframe(
+#             comp.round(2),
+#             use_container_width=True,
+#             hide_index=True,
+#         )
+
+#         chart = comp.melt(
+#             id_vars="Variable",
+#             value_vars=["Baseline", "Scenario"],
+#             var_name="Run",
+#             value_name="Predicted value",
+#         )
+
+#         st.plotly_chart(
+#             px.bar(
+#                 chart,
+#                 x="Variable",
+#                 y="Predicted value",
+#                 color="Run",
+#                 barmode="group",
+#             ),
+#             use_container_width=True,
+#         )
+
+#         # Map the difference between the scenario and baseline.
+#         map_variable = st.selectbox(
+#             "Impact map variable",
+#             ["Rainfall", "Tmax", "Tmin"],
+#             key="impact_map",
+#         )
+
+#         key = {
+#             "Rainfall": 0,
+#             "Tmax": 1,
+#             "Tmin": 2,
+#         }[map_variable]
+
+#         delta_grid = (
+#             scenario_grid[:, :, key]
+#             - baseline_grid[:, :, key]
+#         )
+
+#         delta_table = build_grid_table(
+#             ds,
+#             mask,
+#             delta_grid[:, :, None],
+#             one_channel=True,
+#         )
+
+#         delta_table["impact"] = delta_grid[mask]
+
+#         map_obj = folium.Map(
+#             location=[24.1, 88.0],
+#             zoom_start=7,
+#             tiles="OpenStreetMap",
+#             control_scale=True,
+#         )
+
+#         add_map_layers(
+#             map_obj,
+#             delta_table,
+#             "impact",
+#             f"Scenario impact: {map_variable}",
+#         )
+
+#         st_folium(
+#             map_obj,
+#             use_container_width=True,
+#             height=560,
+#             returned_objects=[],
+#         )
+
+#         st.caption(
+#             "This shows model sensitivity to altered inputs. "
+#             "It is not a physically validated causal simulation."
+#         )
+
+
+
+
 elif page == "What-if Simulator":
 
-    st.subheader("What-if simulator")
+    from src.forecasting import run_scenario, GRID_REFERENCE_NAMES
+
+    st.subheader("Location-based what-if simulator")
 
     st.write(
-        "Perturb the final observed day in the seven-day "
-        "input window and compare the model response."
+        "Choose one available grid cell, modify its latest observed "
+        "rainfall or temperature, and compare the model's prediction "
+        "with the baseline forecast."
     )
 
+    # --------------------------------------------------------
+    # Build a selector from valid grid cells only
+    # --------------------------------------------------------
+    locations = {}
+
+    for row in range(mask.shape[0]):
+        for col in range(mask.shape[1]):
+            if not mask[row, col]:
+                continue
+
+            lat = float(ds.latitude.values[row])
+            lon = float(ds.longitude.values[col])
+
+            reference_name, _ = GRID_REFERENCE_NAMES.get(
+                (round(lat, 1), round(lon, 1)),
+                (f"Grid cell {lat:.1f}, {lon:.1f}", "Grid cell"),
+            )
+
+            label = (
+                f"{reference_name} "
+                f"({lat:.1f}°N, {lon:.1f}°E)"
+            )
+            locations[label] = (row, col)
+
+    selected_location_label = st.selectbox(
+        "Select a location",
+        options=list(locations.keys()),
+        key="whatif_location",
+    )
+
+    row, col = locations[selected_location_label]
+
+    target_timestamp = pd.Timestamp(selected_target).normalize()
+    dataset_dates = pd.to_datetime(ds.time.values).normalize()
+    prior_indices = np.flatnonzero(dataset_dates < target_timestamp)
+
+    if len(prior_indices) < 7:
+        st.error("This target date does not have seven prior observations.")
+        st.stop()
+
+    latest_idx = int(prior_indices[-1])
+    latest_date = dataset_dates[latest_idx]
+
+    # Read the latest observed values at this particular cell.
+    current_rain = float(
+        ds["rainfall"].isel(time=latest_idx).values[row, col]
+    )
+    current_tmax = float(
+        ds["tmax"].isel(time=latest_idx).values[row, col]
+    )
+    current_tmin = float(
+        ds["tmin"].isel(time=latest_idx).values[row, col]
+    )
+
+    if not np.isfinite([current_rain, current_tmax, current_tmin]).all():
+        st.error(
+            "One or more climate observations are missing for this "
+            "location and date. Choose another location or target date."
+        )
+        st.stop()
+
     st.caption(
-        f"Simulation target date: {selected_target}"
+        f"Selected grid cell: {selected_location_label}  |  "
+        f"Latest observation: {latest_date:%d %b %Y}  |  "
+        f"Forecast target: {target_timestamp:%d %b %Y}"
+    )
+
+    st.markdown("### Latest observed values")
+
+    obs1, obs2, obs3 = st.columns(3)
+    obs1.metric("Rainfall", f"{current_rain:.2f} mm/day")
+    obs2.metric("Maximum temperature", f"{current_tmax:.2f} °C")
+    obs3.metric("Minimum temperature", f"{current_tmin:.2f} °C")
+
+    st.markdown("### Modify the selected location")
+
+    st.caption(
+        "The sliders apply changes to this grid cell on the final day "
+        "of the model's seven-day input window. Other grid cells are "
+        "left unchanged."
     )
 
     c1, c2, c3 = st.columns(3)
@@ -861,226 +1114,157 @@ elif page == "What-if Simulator":
     with c1:
         rain_delta = st.slider(
             "Rainfall change (mm)",
-            -100.0,
-            100.0,
-            0.0,
-            5.0,
+            min_value=-100.0,
+            max_value=100.0,
+            value=0.0,
+            step=1.0,
+            key="whatif_rain_delta",
         )
 
     with c2:
         tmax_delta = st.slider(
-            "Tmax change (°C)",
-            -5.0,
-            5.0,
-            0.0,
-            0.5,
+            "Maximum temperature change (°C)",
+            min_value=-15.0,
+            max_value=15.0,
+            value=0.0,
+            step=0.5,
+            key="whatif_tmax_delta",
         )
 
     with c3:
         tmin_delta = st.slider(
-            "Tmin change (°C)",
-            -5.0,
-            5.0,
-            0.0,
-            0.5,
+            "Minimum temperature change (°C)",
+            min_value=-15.0,
+            max_value=15.0,
+            value=0.0,
+            step=0.5,
+            key="whatif_tmin_delta",
         )
 
-    if st.button(
-        "Run baseline vs scenario",
-        type="primary",
-    ):
-        from src.forecasting import run_scenario
+    scenario_rain = max(0.0, current_rain + rain_delta)
+    scenario_tmax = current_tmax + tmax_delta
+    scenario_tmin = current_tmin + tmin_delta
 
+    st.markdown("### Input comparison")
+
+    input_comparison = pd.DataFrame(
+        [
+            {
+                "Variable": "Rainfall (mm/day)",
+                "Observed value": current_rain,
+                "Scenario input": scenario_rain,
+                "Applied change": scenario_rain - current_rain,
+            },
+            {
+                "Variable": "Maximum temperature (°C)",
+                "Observed value": current_tmax,
+                "Scenario input": scenario_tmax,
+                "Applied change": scenario_tmax - current_tmax,
+            },
+            {
+                "Variable": "Minimum temperature (°C)",
+                "Observed value": current_tmin,
+                "Scenario input": scenario_tmin,
+                "Applied change": scenario_tmin - current_tmin,
+            },
+        ]
+    )
+
+    st.dataframe(
+        input_comparison.round(2),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if st.button(
+        "Run location-based simulation",
+        type="primary",
+        key="run_location_whatif",
+    ):
         try:
-            (
-                baseline,
-                scenario,
-                baseline_grid,
-                scenario_grid,
-            ) = run_scenario(
-                ds,
-                mask,
-                means,
-                stds,
-                model,
-                selected_target,
-                rain_delta,
-                tmax_delta,
-                tmin_delta,
+            with st.spinner("Running baseline and scenario predictions..."):
+                baseline, scenario, baseline_grid, scenario_grid = run_scenario(
+                    ds=ds,
+                    mask=mask,
+                    means=means,
+                    stds=stds,
+                    model=model,
+                    target_date=selected_target,
+                    rainfall_change=rain_delta,
+                    tmax_change=tmax_delta,
+                    tmin_change=tmin_delta,
+                    location_index=(row, col),
+                )
+
+            rows = []
+
+            for var, label, unit in [
+                ("rainfall", "Rainfall", "mm/day"),
+                ("tmax", "Maximum temperature", "°C"),
+                ("tmin", "Minimum temperature", "°C"),
+            ]:
+                base_value = baseline[var]
+                scenario_value = scenario[var]
+
+                rows.append(
+                    {
+                        "Predicted variable": f"{label} ({unit})",
+                        "Baseline prediction": base_value,
+                        "Scenario prediction": scenario_value,
+                        "Difference": scenario_value - base_value,
+                    }
+                )
+
+            result_df = pd.DataFrame(rows)
+
+            st.markdown("### Forecast comparison for selected location")
+
+            m1, m2, m3 = st.columns(3)
+
+            m1.metric(
+                "Scenario rainfall",
+                f"{scenario['rainfall']:.2f} mm/day",
+                delta=f"{scenario['rainfall'] - baseline['rainfall']:+.2f}",
+            )
+            m2.metric(
+                "Scenario Tmax",
+                f"{scenario['tmax']:.2f} °C",
+                delta=f"{scenario['tmax'] - baseline['tmax']:+.2f} °C",
+            )
+            m3.metric(
+                "Scenario Tmin",
+                f"{scenario['tmin']:.2f} °C",
+                delta=f"{scenario['tmin'] - baseline['tmin']:+.2f} °C",
+            )
+
+            st.dataframe(
+                result_df.round(2),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            chart_df = result_df.set_index("Predicted variable")[
+                ["Baseline prediction", "Scenario prediction"]
+            ]
+            st.bar_chart(chart_df)
+
+            st.success(
+                "Simulation completed for the selected grid cell. "
+                "The baseline uses the original input observations; "
+                "the scenario changes only the selected cell."
             )
 
         except Exception as exc:
             st.error(f"Simulation failed: {exc}")
-            st.stop()
 
-        rows = []
-
-        for var, label, unit in [
-            ("rainfall", "Rainfall", "mm/day"),
-            ("tmax", "Tmax", "°C"),
-            ("tmin", "Tmin", "°C"),
-        ]:
-            rows.append(
-                {
-                    "Variable": f"{label} ({unit})",
-                    "Baseline": baseline[var],
-                    "Scenario": scenario[var],
-                    "Difference": (
-                        scenario[var] - baseline[var]
-                    ),
-                }
-            )
-
-        comp = pd.DataFrame(rows)
-
-        st.subheader("Baseline versus scenario")
-
-        st.dataframe(
-            comp.round(2),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        chart = comp.melt(
-            id_vars="Variable",
-            value_vars=["Baseline", "Scenario"],
-            var_name="Run",
-            value_name="Predicted value",
-        )
-
-        st.plotly_chart(
-            px.bar(
-                chart,
-                x="Variable",
-                y="Predicted value",
-                color="Run",
-                barmode="group",
-            ),
-            use_container_width=True,
-        )
-
-        # Map the difference between the scenario and baseline.
-        map_variable = st.selectbox(
-            "Impact map variable",
-            ["Rainfall", "Tmax", "Tmin"],
-            key="impact_map",
-        )
-
-        key = {
-            "Rainfall": 0,
-            "Tmax": 1,
-            "Tmin": 2,
-        }[map_variable]
-
-        delta_grid = (
-            scenario_grid[:, :, key]
-            - baseline_grid[:, :, key]
-        )
-
-        delta_table = build_grid_table(
-            ds,
-            mask,
-            delta_grid[:, :, None],
-            one_channel=True,
-        )
-
-        delta_table["impact"] = delta_grid[mask]
-
-        map_obj = folium.Map(
-            location=[24.1, 88.0],
-            zoom_start=7,
-            tiles="OpenStreetMap",
-            control_scale=True,
-        )
-
-        add_map_layers(
-            map_obj,
-            delta_table,
-            "impact",
-            f"Scenario impact: {map_variable}",
-        )
-
-        st_folium(
-            map_obj,
-            use_container_width=True,
-            height=560,
-            returned_objects=[],
-        )
-
-        st.caption(
-            "This shows model sensitivity to altered inputs. "
-            "It is not a physically validated causal simulation."
-        )
-
-
-# ============================================================
-# PAGE 4: MODEL PERFORMANCE
-# ============================================================
-
-elif page == "Model Performance":
-
-    st.subheader("Model performance")
-
-    st.write(
-        "The model was trained using a chronological split: "
-        "training through 2022, validation in 2023–2024, "
-        "and test data in 2025."
+    st.info(
+        "This experiment measures the model's sensitivity to modified "
+        "inputs. It does not establish that changing local weather "
+        "conditions would physically cause the predicted outcome. "
+        "Grid cells represent coarse model locations, not weather stations."
     )
 
-    metrics_path = (
-        ROOT
-        / "models"
-        / "convlstm_attention_1day_metrics.csv"
-    )
 
-    if metrics_path.exists():
-
-        metrics = pd.read_csv(metrics_path)
-
-        st.dataframe(
-            metrics,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        numeric = [
-            c
-            for c in metrics.columns
-            if c.lower() in {"mae", "rmse", "r2", "mse"}
-        ]
-
-        if numeric:
-            st.bar_chart(
-                metrics.set_index(
-                    metrics.columns[0]
-                )[numeric]
-            )
-
-    else:
-        st.info(
-            "No `models/convlstm_attention_1day_metrics.csv` "
-            "file was found. This page will not invent metrics. "
-            "Export the real test-set metrics from your "
-            "evaluation notebook to this path to display them here."
-        )
-
-    st.markdown("#### What the metrics mean")
-
-    st.markdown(
-        """
-        - **MAE**: average absolute forecast error, in the
-          variable's original units.
-        - **RMSE**: gives larger errors more influence.
-        - **Forecast vs observation**: compare predictions
-          with recorded values for dates where observations exist.
-        """
-    )
-
-    st.warning(
-        "The selected 2025 test period should remain the final "
-        "evaluation period; avoid tuning model choices against "
-        "it repeatedly."
-    )
 
 
 # ============================================================
@@ -1895,6 +2079,9 @@ elif page == "Temperature Anomalies":
         "They are not forecasts of future heatwaves or cold waves."
     )
 
+# ============================================================
+# PAGE 6: MODEL PERFORMANCE
+# ============================================================
 
 elif page == "Model Performance":
 
