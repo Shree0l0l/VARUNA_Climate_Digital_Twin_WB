@@ -152,6 +152,7 @@ page = st.sidebar.radio(
         "Climate Overview",
         "Forecast & Spatial Map",
         "What-if Simulator",
+        "Risk Alerts",
         "Model Performance",
         "About VARUNA",
     ],
@@ -1072,7 +1073,425 @@ elif page == "Model Performance":
 
 
 # ============================================================
-# PAGE 5: ABOUT VARUNA
+# PAGE5: COMBINED FLOOD AND DROUGHT RISK ALERTS
+# ============================================================
+
+elif page == "Risk Alerts":
+
+    st.subheader("Combined Flood and Drought Risk Alerts")
+
+    st.write(
+        "View combined flood and drought risk levels, "
+        "hazard classifications, alert priorities, and "
+        "affected grid locations across West Bengal."
+    )
+
+    # --------------------------------------------------------
+    # STEP 1: Define the paths to the generated output files
+    # --------------------------------------------------------
+
+    ALERTS_DIR = ROOT / "results" / "risk_alerts"
+
+    COMBINED_PATH = ALERTS_DIR / "combined_risk_alerts.csv"
+    LATEST_PATH = ALERTS_DIR / "latest_risk_alerts.csv"
+    SUMMARY_PATH = ALERTS_DIR / "dashboard_risk_summary.json"
+
+    # --------------------------------------------------------
+    # STEP 2: Load the generated CSV files
+    # --------------------------------------------------------
+
+    @st.cache_data
+    def load_risk_alert_files(combined_path, latest_path):
+        combined = pd.read_csv(combined_path)
+        latest = pd.read_csv(latest_path)
+
+        combined["date"] = pd.to_datetime(
+            combined["date"], errors="coerce"
+        )
+        latest["date"] = pd.to_datetime(
+            latest["date"], errors="coerce"
+        )
+
+        return combined, latest
+
+    if not COMBINED_PATH.exists() or not LATEST_PATH.exists():
+        st.error(
+            "Risk alert output files were not found. "
+            "Run the combined risk alerts module first."
+        )
+        st.code(
+            "python src/risk_alerts/risk_alerts_combined.py"
+        )
+        st.stop()
+
+    try:
+        combined_df, latest_df = load_risk_alert_files(
+            str(COMBINED_PATH),
+            str(LATEST_PATH),
+        )
+
+    except Exception as exc:
+        st.error(f"Could not load risk alert files: {exc}")
+        st.stop()
+
+    # --------------------------------------------------------
+    # STEP 3: Validate the required columns
+    # --------------------------------------------------------
+
+    required_columns = {
+        "date",
+        "latitude",
+        "longitude",
+        "flood_risk_level",
+        "drought_risk_level",
+        "combined_risk_level",
+        "hazard_type",
+        "alert_priority",
+        "alert_message",
+    }
+
+    missing = required_columns - set(combined_df.columns)
+
+    if missing:
+        st.error(
+            "The combined alerts CSV is missing required "
+            f"columns: {', '.join(sorted(missing))}"
+        )
+        st.stop()
+
+    if combined_df.empty:
+        st.warning("The combined risk alerts file is empty.")
+        st.stop()
+
+    # Remove records without usable dates or coordinates.
+    combined_df = combined_df.dropna(
+        subset=["date", "latitude", "longitude"]
+    ).copy()
+
+    latest_df = latest_df.dropna(
+        subset=["date", "latitude", "longitude"]
+    ).copy()
+
+    if combined_df.empty:
+        st.warning("No valid dated risk observations are available.")
+        st.stop()
+
+    # --------------------------------------------------------
+    # STEP 4: Display the latest date and summary metrics
+    # --------------------------------------------------------
+
+    latest_date = combined_df["date"].max()
+
+    # Use the generated latest-date file for current alerts.
+    current_alerts = latest_df[
+        latest_df["date"] == latest_df["date"].max()
+    ].copy() if not latest_df.empty else latest_df.copy()
+
+    st.caption(
+        f"Latest observation date: {latest_date:%d %B %Y}"
+    )
+
+    total_observations = len(combined_df)
+
+    high_extreme_count = int(
+        combined_df["combined_risk_level"]
+        .astype(str)
+        .str.upper()
+        .isin(["HIGH", "EXTREME"])
+        .sum()
+    )
+
+    extreme_count = int(
+        combined_df["combined_risk_level"]
+        .astype(str)
+        .str.upper()
+        .eq("EXTREME")
+        .sum()
+    )
+
+    critical_count = int(
+        current_alerts["alert_priority"]
+        .astype(str)
+        .str.upper()
+        .eq("CRITICAL")
+        .sum()
+    ) if "alert_priority" in current_alerts.columns else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("Total observations", f"{total_observations:,}")
+    c2.metric("High / Extreme observations", f"{high_extreme_count:,}")
+    c3.metric("Extreme observations", f"{extreme_count:,}")
+    c4.metric("Critical latest alerts", f"{critical_count:,}")
+
+    st.caption(
+        "These counts represent records in the generated dataset, "
+        "not necessarily unique locations or independent events."
+    )
+
+    # --------------------------------------------------------
+    # STEP 5: Combined risk distribution
+    # --------------------------------------------------------
+
+    st.markdown("### Combined risk distribution")
+
+    risk_order = ["LOW", "MODERATE", "HIGH", "EXTREME"]
+
+    risk_counts = (
+        combined_df["combined_risk_level"]
+        .astype(str)
+        .str.upper()
+        .value_counts()
+        .reindex(risk_order, fill_value=0)
+        .rename_axis("Risk level")
+        .reset_index(name="Observations")
+    )
+
+    c1, c2 = st.columns([1, 1])
+
+    with c1:
+        fig_risk = px.bar(
+            risk_counts,
+            x="Risk level",
+            y="Observations",
+            category_orders={"Risk level": risk_order},
+            title="Observations by combined risk level",
+        )
+        st.plotly_chart(fig_risk, use_container_width=True)
+
+    with c2:
+        fig_hazard = px.pie(
+            combined_df,
+            names="hazard_type",
+            title="Hazard type distribution",
+        )
+        st.plotly_chart(fig_hazard, use_container_width=True)
+
+    # --------------------------------------------------------
+    # STEP 6: Filter the alerts shown to the user
+    # --------------------------------------------------------
+
+    st.markdown("### Explore risk alerts")
+
+    available_levels = [
+        level for level in risk_order
+        if level in combined_df["combined_risk_level"]
+        .astype(str).str.upper().unique()
+    ]
+
+    selected_levels = st.multiselect(
+        "Filter by combined risk level",
+        options=available_levels,
+        default=["HIGH", "EXTREME"],
+    )
+
+    available_hazards = sorted(
+        combined_df["hazard_type"]
+        .dropna().astype(str).unique().tolist()
+    )
+
+    selected_hazards = st.multiselect(
+        "Filter by hazard type",
+        options=available_hazards,
+        default=available_hazards,
+    )
+
+    min_date = combined_df["date"].min().date()
+    max_date = combined_df["date"].max().date()
+
+    date_range = st.date_input(
+        "Filter by observation date",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
+    )
+
+    filtered_df = combined_df.copy()
+
+    filtered_df = filtered_df[
+        filtered_df["combined_risk_level"]
+        .astype(str).str.upper().isin(selected_levels)
+    ]
+
+    filtered_df = filtered_df[
+        filtered_df["hazard_type"]
+        .astype(str).isin(selected_hazards)
+    ]
+
+    if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+        start_date, end_date = date_range
+        filtered_df = filtered_df[
+            filtered_df["date"].dt.date.between(
+                start_date, end_date
+            )
+        ]
+
+    st.caption(f"{len(filtered_df):,} records match your filters.")
+
+    # --------------------------------------------------------
+    # STEP 7: Display alert records in a table
+    # --------------------------------------------------------
+
+    display_columns = [
+        "date",
+        "latitude",
+        "longitude",
+        "flood_risk_level",
+        "drought_risk_level",
+        "combined_risk_level",
+        "hazard_type",
+        "alert_priority",
+        "alert_message",
+    ]
+
+    st.dataframe(
+        filtered_df[display_columns]
+        .sort_values(
+            ["date", "combined_risk_level"],
+            ascending=[False, False],
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    csv_download = filtered_df[display_columns].to_csv(
+        index=False
+    ).encode("utf-8")
+
+    st.download_button(
+        "Download filtered risk alerts",
+        data=csv_download,
+        file_name="varuna_filtered_risk_alerts.csv",
+        mime="text/csv",
+    )
+
+    # --------------------------------------------------------
+    # STEP 8: Plot the filtered alerts on a spatial map
+    # --------------------------------------------------------
+
+    st.markdown("### Spatial distribution of risk alerts")
+
+    if filtered_df.empty:
+        st.info("No alerts match the selected filters.")
+    else:
+        map_df = filtered_df.copy()
+
+        map_df["combined_risk_level"] = (
+            map_df["combined_risk_level"]
+            .astype(str).str.upper()
+        )
+
+        # Keep the latest record per grid cell for the map.
+        map_df = (
+            map_df.sort_values("date")
+            .drop_duplicates(
+                subset=["latitude", "longitude"],
+                keep="last",
+            )
+        )
+
+        risk_colors = {
+            "LOW": "green",
+            "MODERATE": "blue",
+            "HIGH": "orange",
+            "EXTREME": "red",
+        }
+
+        map_obj = folium.Map(
+            location=[24.1, 88.0],
+            zoom_start=7,
+            tiles="OpenStreetMap",
+            control_scale=True,
+        )
+
+        for _, row in map_df.iterrows():
+            level = row["combined_risk_level"]
+            color = risk_colors.get(level, "gray")
+
+            popup_html = (
+                f"<b>Combined risk:</b> {level}<br>"
+                f"<b>Date:</b> {row['date']:%Y-%m-%d}<br>"
+                f"<b>Flood:</b> {row['flood_risk_level']}<br>"
+                f"<b>Drought:</b> {row['drought_risk_level']}<br>"
+                f"<b>Hazard:</b> {row['hazard_type']}<br>"
+                f"<b>Priority:</b> {row['alert_priority']}<br>"
+                f"<b>Alert:</b> {row['alert_message']}"
+            )
+
+            folium.CircleMarker(
+                location=[
+                    row["latitude"],
+                    row["longitude"],
+                ],
+                radius=8,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.8,
+                tooltip=f"{level} risk",
+                popup=folium.Popup(
+                    popup_html,
+                    max_width=350,
+                ),
+            ).add_to(map_obj)
+
+        st_folium(
+            map_obj,
+            use_container_width=True,
+            height=570,
+            returned_objects=[],
+        )
+
+        st.caption(
+            "The map shows the latest matching record per grid cell. "
+            "Grid coordinates are coarse model-grid centres, "
+            "not weather-station locations."
+        )
+
+    # --------------------------------------------------------
+    # STEP 9: Show the current latest-date alert table
+    # --------------------------------------------------------
+
+    st.markdown("### Latest available alerts")
+
+    if current_alerts.empty:
+        st.info("No records are available in the latest alerts file.")
+    else:
+        st.dataframe(
+            current_alerts[
+                [
+                    col for col in display_columns
+                    if col in current_alerts.columns
+                ]
+            ].sort_values(
+                "combined_risk_level",
+                ascending=False,
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # --------------------------------------------------------
+    # STEP 10: Optional JSON summary availability
+    # --------------------------------------------------------
+
+    if SUMMARY_PATH.exists():
+        with st.expander("View dashboard summary JSON"):
+            try:
+                with open(
+                    SUMMARY_PATH, "r", encoding="utf-8"
+                ) as summary_file:
+                    summary_data = json.load(summary_file)
+
+                st.json(summary_data)
+
+            except (OSError, json.JSONDecodeError) as exc:
+                st.warning(f"Could not read summary JSON: {exc}")
+
+
+
+# ============================================================
+# PAGE 6: ABOUT VARUNA
 # ============================================================
 
 else:
