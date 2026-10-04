@@ -153,6 +153,7 @@ page = st.sidebar.radio(
         "Forecast & Spatial Map",
         "What-if Simulator",
         "Risk Alerts",
+        "Temperature Anomalies",
         "Model Performance",
         "About VARUNA",
     ],
@@ -1489,6 +1490,400 @@ elif page == "Risk Alerts":
                 st.warning(f"Could not read summary JSON: {exc}")
 
 
+# ============================================================
+# PAGE: TEMPERATURE ANOMALIES
+# ============================================================
+
+elif page == "Temperature Anomalies":
+
+    st.subheader("Temperature Anomaly Detection")
+    st.write(
+        "Explore unusually hot and cold maximum-temperature "
+        "observations across the West Bengal study grid, "
+        "relative to the historical day-of-year climatology."
+    )
+
+    # --------------------------------------------------------
+    # STEP 1: Define output paths
+    # --------------------------------------------------------
+
+    ANOMALY_DIR = ROOT / "results" / "anomaly"
+
+    HOT_PATH = ANOMALY_DIR / "strongest_hot_anomalies.csv"
+    COLD_PATH = ANOMALY_DIR / "strongest_cold_anomalies.csv"
+    ALL_PATH = ANOMALY_DIR / "tmax_anomaly_records.csv"
+
+    # --------------------------------------------------------
+    # STEP 2: Load anomaly outputs
+    # --------------------------------------------------------
+
+    @st.cache_data
+    def load_anomaly_files(all_path, hot_path, cold_path):
+        all_records = pd.read_csv(all_path)
+        hot_records = pd.read_csv(hot_path)
+        cold_records = pd.read_csv(cold_path)
+
+        for df in [all_records, hot_records, cold_records]:
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(
+                    df["date"], errors="coerce"
+                )
+
+        return all_records, hot_records, cold_records
+
+    missing_files = [
+        path.name
+        for path in [ALL_PATH, HOT_PATH, COLD_PATH]
+        if not path.exists()
+    ]
+
+    if missing_files:
+        st.error(
+            "The following anomaly output files are missing: "
+            + ", ".join(missing_files)
+        )
+        st.info(
+            "Run the anomaly-detection notebook or its "
+            "equivalent pipeline to generate the CSV files."
+        )
+        st.stop()
+
+    try:
+        all_df, hot_df, cold_df = load_anomaly_files(
+            str(ALL_PATH),
+            str(HOT_PATH),
+            str(COLD_PATH),
+        )
+    except Exception as exc:
+        st.error(f"Could not load anomaly records: {exc}")
+        st.stop()
+
+    # --------------------------------------------------------
+    # STEP 3: Validate the full anomaly dataset
+    # --------------------------------------------------------
+
+    required = {
+        "date",
+        "latitude",
+        "longitude",
+        "tmax",
+        "normal_tmax",
+        "anomaly_celsius",
+        "zscore",
+        "temperature_status",
+    }
+
+    missing_columns = required - set(all_df.columns)
+
+    if missing_columns:
+        st.error(
+            "The full anomaly CSV is missing required columns: "
+            + ", ".join(sorted(missing_columns))
+        )
+        st.stop()
+
+    all_df = all_df.dropna(
+        subset=["date", "latitude", "longitude", "zscore"]
+    ).copy()
+
+    all_df["temperature_status"] = (
+        all_df["temperature_status"].astype(str).str.upper()
+    )
+
+    if all_df.empty:
+        st.warning("No valid anomaly records are available.")
+        st.stop()
+
+    # --------------------------------------------------------
+    # STEP 4: Summary metrics
+    # --------------------------------------------------------
+
+    latest_date = all_df["date"].max()
+
+    hot_count = int(
+        all_df["temperature_status"].eq("HOT_ANOMALY").sum()
+    )
+    cold_count = int(
+        all_df["temperature_status"].eq("COLD_ANOMALY").sum()
+    )
+    normal_count = int(
+        all_df["temperature_status"].eq("NORMAL").sum()
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("Hot anomaly records", f"{hot_count:,}")
+    c2.metric("Cold anomaly records", f"{cold_count:,}")
+    c3.metric("Normal records", f"{normal_count:,}")
+    c4.metric("Latest observation", latest_date.strftime("%d %b %Y"))
+
+    st.caption(
+        "Anomalies are identified using Tmax z-scores: "
+        "hot ≥ +2 and cold ≤ −2. Counts represent grid-cell "
+        "observations across the full historical archive."
+    )
+
+    # --------------------------------------------------------
+    # STEP 5: Filter by date and anomaly type
+    # --------------------------------------------------------
+
+    st.markdown("### Explore historical anomalies")
+
+    statuses = ["HOT_ANOMALY", "COLD_ANOMALY", "NORMAL"]
+
+    selected_statuses = st.multiselect(
+        "Anomaly classification",
+        options=statuses,
+        default=["HOT_ANOMALY", "COLD_ANOMALY"],
+    )
+
+    min_date = all_df["date"].min().date()
+    max_date = all_df["date"].max().date()
+
+    date_range = st.date_input(
+        "Observation date range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
+        key="anomaly_date_range",
+    )
+
+    filtered = all_df[
+        all_df["temperature_status"].isin(selected_statuses)
+    ].copy()
+
+    if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+        start_date, end_date = date_range
+        filtered = filtered[
+            filtered["date"].dt.date.between(
+                start_date, end_date
+            )
+        ]
+
+    st.caption(f"{len(filtered):,} records match your filters.")
+
+    # --------------------------------------------------------
+    # STEP 6: Visualize anomaly classifications
+    # --------------------------------------------------------
+
+    st.markdown("### Anomaly distribution")
+
+    status_counts = (
+        all_df["temperature_status"]
+        .value_counts()
+        .reindex(statuses, fill_value=0)
+        .rename_axis("Classification")
+        .reset_index(name="Observations")
+    )
+
+    left, right = st.columns(2)
+
+    with left:
+        fig_status = px.bar(
+            status_counts,
+            x="Classification",
+            y="Observations",
+            title="Historical Tmax anomaly classifications",
+            color="Classification",
+            color_discrete_map={
+                "HOT_ANOMALY": "#D94841",
+                "COLD_ANOMALY": "#3182BD",
+                "NORMAL": "#718096",
+            },
+        )
+        st.plotly_chart(fig_status, use_container_width=True)
+
+    with right:
+        if not filtered.empty:
+            fig_zscore = px.histogram(
+                filtered,
+                x="zscore",
+                color="temperature_status",
+                nbins=40,
+                title="Distribution of Tmax anomaly z-scores",
+                color_discrete_map={
+                    "HOT_ANOMALY": "#D94841",
+                    "COLD_ANOMALY": "#3182BD",
+                    "NORMAL": "#718096",
+                },
+            )
+            st.plotly_chart(fig_zscore, use_container_width=True)
+        else:
+            st.info("No records match the selected filters.")
+
+    # --------------------------------------------------------
+    # STEP 7: Map the latest matching record per grid cell
+    # --------------------------------------------------------
+
+    st.markdown("### Spatial distribution of anomalies")
+
+    if filtered.empty:
+        st.info("No anomaly records match the selected filters.")
+    else:
+        map_df = (
+            filtered.sort_values("date")
+            .drop_duplicates(
+                subset=["latitude", "longitude"],
+                keep="last",
+            )
+        )
+
+        anomaly_colors = {
+            "HOT_ANOMALY": "red",
+            "COLD_ANOMALY": "blue",
+            "NORMAL": "gray",
+        }
+
+        anomaly_map = folium.Map(
+            location=[24.1, 88.0],
+            zoom_start=7,
+            tiles="OpenStreetMap",
+            control_scale=True,
+        )
+
+        for _, row in map_df.iterrows():
+            status = row["temperature_status"]
+            color = anomaly_colors.get(status, "gray")
+
+            popup = (
+                f"<b>Status:</b> {status}<br>"
+                f"<b>Date:</b> {row['date']:%Y-%m-%d}<br>"
+                f"<b>Observed Tmax:</b> {row['tmax']:.2f} °C<br>"
+                f"<b>Normal Tmax:</b> {row['normal_tmax']:.2f} °C<br>"
+                f"<b>Anomaly:</b> {row['anomaly_celsius']:.2f} °C<br>"
+                f"<b>Z-score:</b> {row['zscore']:.2f}"
+            )
+
+            folium.CircleMarker(
+                location=[row["latitude"], row["longitude"]],
+                radius=8,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.8,
+                tooltip=status.replace("_", " "),
+                popup=folium.Popup(popup, max_width=300),
+            ).add_to(anomaly_map)
+
+        st_folium(
+            anomaly_map,
+            use_container_width=True,
+            height=550,
+            returned_objects=[],
+        )
+
+        st.caption(
+            "The map shows the latest matching record for each "
+            "grid cell within the selected date range. Coordinates "
+            "represent coarse grid-cell centres."
+        )
+
+    # --------------------------------------------------------
+    # STEP 8: Show the strongest hot and cold anomalies
+    # --------------------------------------------------------
+
+    st.markdown("### Strongest historical anomalies")
+
+    hot_tab, cold_tab = st.tabs(
+        ["Strongest hot anomalies", "Strongest cold anomalies"]
+    )
+
+    anomaly_columns = [
+        "date",
+        "latitude",
+        "longitude",
+        "tmax",
+        "normal_tmax",
+        "anomaly_celsius",
+        "zscore",
+        "temperature_status",
+    ]
+
+    with hot_tab:
+        if hot_df.empty:
+            st.info("No strongest-hot records are available.")
+        else:
+            hot_display = hot_df.copy()
+            if "date" in hot_display.columns:
+                hot_display["date"] = pd.to_datetime(
+                    hot_display["date"], errors="coerce"
+                )
+            cols = [
+                col for col in anomaly_columns
+                if col in hot_display.columns
+            ]
+            st.dataframe(
+                hot_display[cols],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.download_button(
+                "Download strongest hot anomalies",
+                data=hot_display.to_csv(index=False).encode("utf-8"),
+                file_name="strongest_hot_anomalies.csv",
+                mime="text/csv",
+            )
+
+    with cold_tab:
+        if cold_df.empty:
+            st.info("No strongest-cold records are available.")
+        else:
+            cold_display = cold_df.copy()
+            if "date" in cold_display.columns:
+                cold_display["date"] = pd.to_datetime(
+                    cold_display["date"], errors="coerce"
+                )
+            cols = [
+                col for col in anomaly_columns
+                if col in cold_display.columns
+            ]
+            st.dataframe(
+                cold_display[cols],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.download_button(
+                "Download strongest cold anomalies",
+                data=cold_display.to_csv(index=False).encode("utf-8"),
+                file_name="strongest_cold_anomalies.csv",
+                mime="text/csv",
+            )
+
+    # --------------------------------------------------------
+    # STEP 9: Full filtered anomaly records
+    # --------------------------------------------------------
+
+    st.markdown("### Detailed anomaly records")
+
+    detail_columns = [
+        col for col in anomaly_columns
+        if col in filtered.columns
+    ]
+
+    st.dataframe(
+        filtered[detail_columns].sort_values(
+            "date", ascending=False
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.download_button(
+        "Download filtered anomaly records",
+        data=filtered[detail_columns]
+        .to_csv(index=False)
+        .encode("utf-8"),
+        file_name="varuna_filtered_tmax_anomalies.csv",
+        mime="text/csv",
+    )
+
+    st.info(
+        "These are historical Tmax anomaly detections based on "
+        "the climatology calculated by the anomaly pipeline. "
+        "They are not forecasts of future heatwaves or cold waves."
+    )
 
 # ============================================================
 # PAGE 6: ABOUT VARUNA
