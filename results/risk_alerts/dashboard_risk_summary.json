@@ -1,6 +1,6 @@
 {
   "module": "VARUNA Combined Risk Alerts",
-  "generated_at": "2026-10-02T12:06:23.861495",
+  "generated_at": "2026-10-04T12:09:19.165472",
   "dataset_period": {
     "start": "2015-01-07",
     "end": "2025-12-31"
@@ -22,8 +22,9 @@
     "EXTREME": 14
   },
   "hazard_type_distribution": {
-    "MULTI_HAZARD": 53888,
-    "FLOOD": 1162,
+    "DROUGHT": 32695,
+    "NONE": 17131,
+    "FLOOD": 5224,
     "COMPOUND": 1118
   },
   "flood_input_observations": 56168,
@@ -34,101 +35,101 @@
       "date": "2025-12-31",
       "latitude": 22.5,
       "longitude": 86.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 22.5,
       "longitude": 87.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 22.5,
       "longitude": 88.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 23.5,
       "longitude": 85.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 23.5,
       "longitude": 86.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 23.5,
       "longitude": 87.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 23.5,
       "longitude": 88.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 24.5,
       "longitude": 87.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 24.5,
       "longitude": 88.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     },
     {
       "date": "2025-12-31",
       "latitude": 25.5,
       "longitude": 87.5,
-      "hazard_type": "MULTI_HAZARD",
+      "hazard_type": "DROUGHT",
       "risk_level": "EXTREME",
       "flood_risk": "LOW",
       "drought_risk": "EXTREME",
-      "alert_message": "Both flood and drought modules have observations. Combined level: EXTREME."
+      "alert_message": "Drought risk level: EXTREME."
     }
   ]
 }
