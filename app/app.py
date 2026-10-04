@@ -9,6 +9,16 @@ import streamlit as st
 import plotly.express as px
 import folium
 from streamlit_folium import st_folium
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import streamlit as st
+
+from src.evaluation import (
+    inspect_test_data,
+    evaluate_all_models
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -1884,6 +1894,111 @@ elif page == "Temperature Anomalies":
         "the climatology calculated by the anomaly pipeline. "
         "They are not forecasts of future heatwaves or cold waves."
     )
+
+
+elif page == "Model Performance":
+
+    st.title("Model Performance")
+
+    st.caption(
+        "Dynamic evaluation of VARUNA climate forecasting models"
+    )
+
+    # ========================================================
+    # TEST DATA INFORMATION
+    # ========================================================
+
+    st.subheader("Evaluation Configuration")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric(
+        "Forecast Horizon",
+        "1 Day"
+    )
+
+    c2.metric(
+        "Historical Window",
+        "7 Days"
+    )
+
+    c3.metric(
+        "Test Period",
+        "2025"
+    )
+
+    c4.metric(
+        "Spatial Cells",
+        "14"
+    )
+
+    st.divider()
+
+    # ========================================================
+    # TEST DATA INSPECTION
+    # ========================================================
+
+    st.subheader("Test Dataset")
+
+    try:
+
+        test_info = inspect_test_data()
+
+        st.dataframe(
+            test_info,
+            hide_index=True,
+            width="stretch"
+        )
+
+    except Exception as e:
+
+        st.error(
+            f"Unable to load test dataset:\n{e}"
+        )
+
+    st.divider()
+
+    # ========================================================
+    # MODEL PERFORMANCE
+    # ========================================================
+
+    st.subheader(
+        "Dynamic Model Evaluation"
+    )
+
+    st.info(
+        "Metrics are calculated from the saved "
+        "2025 test sequences and trained models."
+    )
+
+    if st.button(
+        "Evaluate Models",
+        type="primary"
+    ):
+
+        try:
+
+            test_data = np.load(
+                Path("data/sequences/test_1day_fixed.npz"),
+                allow_pickle=False
+            )
+
+            st.write(
+                "Available test arrays:",
+                test_data.files
+            )
+
+            st.warning(
+                "The exact input and target arrays "
+                "must be mapped to the final model "
+                "inputs before evaluation."
+            )
+
+        except Exception as e:
+
+            st.error(
+                f"Evaluation failed:\n{e}"
+            )
 
 # ============================================================
 # PAGE 6: ABOUT VARUNA
